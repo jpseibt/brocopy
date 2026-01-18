@@ -21,7 +21,7 @@ str_len(char *s)
 
 // 'A' = 0b0100 0001
 // 'a' = 0b0110 0001
-// Flip the bit 5 to lower A-Z (double evaluation error prone)
+// Flip the bit 5 to lower A-Z
 static inline int32_t
 to_lower(int32_t ch)
 {
@@ -35,18 +35,22 @@ typedef struct Str8
   uint64_t size;
 } Str8;
 
-#define str8_from_buf(buf)   (Str8){ (uint8_t *)(buf), sizeof(buf) }
-#define str8_from_lit(lit)   (Str8){ (uint8_t *)(lit), sizeof(lit) - 1 }
-#define str8_from_chptr(ptr) (Str8){ (uint8_t *)(ptr), str_len(ptr) } /* Assumes null terminated char* */
+#define str8_from_buf(buf)    (Str8){ (uint8_t *)(buf), sizeof(buf) }
+#define str8_from_lit(lit)    (Str8){ (uint8_t *)(lit), sizeof(lit) - 1 }
+#define str8_from_chptr(ptr)  (Str8){ (uint8_t *)(ptr), str_len(ptr) } /* Assumes null terminated char* */
+
+
 
 static inline int32_t
 str8_equals(Str8 lhs, Str8 rhs)
 {
   if (lhs.size != rhs.size) return 0;
+
   for (uint64_t i = 0; i < lhs.size; ++i)
   {
     if (lhs.ptr[i] != rhs.ptr[i]) return 0;
   }
+
   return 1;
 }
 
@@ -54,10 +58,12 @@ static inline int32_t
 str8_equals_insensitive(Str8 lhs, Str8 rhs)
 {
   if (lhs.size != rhs.size) return 0;
+
   for (uint64_t i = 0; i < lhs.size; ++i)
   {
     if (to_lower(lhs.ptr[i]) != to_lower(rhs.ptr[i])) return 0;
   }
+
   return 1;
 }
 
@@ -66,10 +72,12 @@ static inline int32_t
 str8_match(Str8 lhs, Str8 rhs, uint64_t n)
 {
   if (lhs.size < n || rhs.size < n) return 0;
+
   for (uint64_t i = 0; i < n; ++i)
   {
     if (lhs.ptr[i] != rhs.ptr[i]) return 0;
   }
+
   return 1;
 }
 
@@ -77,10 +85,12 @@ static inline int32_t
 str8_match_insensitive(Str8 lhs, Str8 rhs, uint64_t n)
 {
   if (lhs.size < n || rhs.size < n) return 0;
+
   for (uint64_t i = 0; i < n; ++i)
   {
     if (to_lower(lhs.ptr[i]) != to_lower(rhs.ptr[i])) return 0;
   }
+
   return 1;
 }
 
@@ -93,6 +103,7 @@ str8_index(Str8 str, uint8_t ch)
     if (str.ptr[i] == ch)
       return i;
   }
+
   return str.size;
 }
 
@@ -104,6 +115,7 @@ str8_index_last(Str8 str, uint8_t ch)
     if (str.ptr[i - 1] == ch)
       return i - 1;
   }
+
   return str.size;
 }
 
@@ -143,6 +155,7 @@ str8_index_substr_last(Str8 str, Str8 sub)
 
   return str.size;
 }
+
 
 //==================================================
 // Prototypes

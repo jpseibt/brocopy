@@ -28,8 +28,8 @@ str_match(char *str0, char *str1, int32_t len, int32_t insensitive)
 }
 
 // Append `s` to `buf` and return new length -> Truncate `s` if length of `buf` + `s` exceeds `size`
-uint64_t
-str_append(char *buf, char *s, uint64_t size)
+uint32_t
+str_append(char *buf, char *s, uint32_t size)
 {
   if (size == 0) return 0;
 
