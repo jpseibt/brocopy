@@ -28,13 +28,17 @@
 // Prototypes
 //int32_t set_head_dir(char *buf, int32_t size);
 uint64_t set_csv_path(Str8 path_str);
-void set_paths_buffer(char **paths_buf, char **path_keys, int32_t num_keys, char *stream, int32_t stream_len);
+int32_t set_paths_buffer(Str8 *paths_arr, Str8 *keys_arr, int32_t n_keys, Str8 stream);
 
-// Global general buffer (for testing!)
+  // Global general buffer (for testing!)
 uint8_t gbuf[GBUF_STACK_SIZE];
 uint8_t *gbuf_ptr = gbuf;
 
-/* TODO: macro just for testing! No bounds check */
+//==================================================
+// TODO: Implement some Str8 formatting and tokenization.
+//==================================================
+
+// TODO: macro just for testing! No bounds check
 #define str8_at_gbuf(size) (Str8){ gbuf_ptr, size }; \
   gbuf_ptr += (size)
 
@@ -47,23 +51,30 @@ int main(int argc, char *argv[])
   }
 
 
-  /*==================================================
-    TODO: Implement configuration file parsing
-    ==================================================*/
+  //==================================================
+  // TODO: Implement configuration file parsing
+  //==================================================
 
-  // Get path of the .exe head to buffer the config file
   // Buffer up to 2KB of the stream on the stack (should be enough to hold ~20 windows paths)
-  Str8 printer_paths[MAX_KEYS];
   Str8 csv_stream_buf = str8_at_gbuf(2048);
   Str8 csv_path = str8_at_gbuf(MAX_PATH);
-
   set_csv_path(csv_path);
 
-  FILE *fconfig = fopen((char*)csv_path.ptr, "r");
-  uint64_t fcsv_bytes_read = fread(csv_stream_buf.ptr, 1, csv_stream_buf.size, fconfig);
+  FILE *fcsv = fopen((char*)csv_path.ptr, "r");
+  uint64_t fcsv_bytes_read = fread(csv_stream_buf.ptr, 1, csv_stream_buf.size, fcsv);
+  csv_stream_buf.size = fcsv_bytes_read;
 
-  set_paths_buffer(printer_paths, argv[1], argc - 1, csv_stream_buf.ptr, fcsv_bytes_read);
-  fclose(fconfig);
+  Str8 keys[MAX_KEYS];
+  Str8 printer_paths[MAX_KEYS];
+
+  // Fill keys array from argv[1]
+  for (int32_t i = 1; i < argc; ++i)
+  {
+    keys[i-1] = str8_from_chptr(argv[i]);
+  }
+
+  set_paths_buffer(printer_paths, keys, argc - 1, csv_stream_buf);
+  fclose(fcsv);
 
 
   // Put stdin stream into memory
@@ -85,12 +96,13 @@ int main(int argc, char *argv[])
 
   printf("Bytes written to %s: %d\n", temp_job_path, bytes_written);
 
-  /*==================================================
-    TODO: Create log file with job sizes
-    ==================================================*/
+  //==================================================
+  // TODO: Create log file with job sizes
+  // ==================================================
   //CopyFile(temp_file_path, "\\\\xxx.xx.xx.x\\02_REST_SOBREMESA", FALSE);
 
   free(job_buf);
+
   return 0;
 }
 
@@ -99,10 +111,10 @@ int main(int argc, char *argv[])
 // Set up a null terminated Str8 with the path of the CSV_FILE_NAME
 uint64_t set_csv_path(Str8 path_str)
 {
-  GetModuleFileName(NULL, path_str.ptr, path_str.size);
+  GetModuleFileName(NULL, (char*)path_str.ptr, path_str.size);
 
   char *file_name = CSV_FILE_NAME;
-  uint64_t slash_idx = str8_index(path_str, '\\');
+  uint64_t slash_idx = str8_index_last(path_str, '\\');
 
   for (uint64_t i = slash_idx + 1; i < path_str.size; ++i)
   {
@@ -110,7 +122,7 @@ uint64_t set_csv_path(Str8 path_str)
     if (*file_name == '\0')
     {
       path_str.ptr[++i] = *file_name;
-      path_str.size = i;
+      path_str.size = i+1;
       break;
     }
   }
@@ -118,40 +130,46 @@ uint64_t set_csv_path(Str8 path_str)
   return path_str.size;
 }
 
+
 // TODO: is an unfinished and half-refactored mess
-void set_paths_buffer(StrSlice *paths_buf, char **path_keys, int32_t num_keys, char *stream, int32_t stream_len)
+// Return number of paths that where succesfully parsed
+int32_t set_paths_buffer(Str8 *paths_arr, Str8 *keys_arr, int32_t n_keys, Str8 stream)
 {
-  // skip csv header and newline char
-  char *head_p = index(stream, '\n');
-  if (!head_p || !*(head_p + 1)) return null;
-  ++head_p; // Start of data
+  int32_t paths_idx, keys_idx, match;
+  uint64_t stream_idx, data_start_idx, comma_idx;
 
-  StrSlice csv_key;
-  StrSlice csv_path;
+  paths_idx = keys_idx = match = 0;
+  data_start_idx = str8_index(stream, '\n') + 1; // Skip .csv header row
 
-  for (int32_t i = 0; i < num_keys; ++i)
+  for (; keys_idx < n_keys; ++keys_idx)
   {
-    char *trav_p = head_p;
-    int32_t match;
-    do
+    stream_idx = data_start_idx;
+
+    for (match = 0; !match && stream_idx < stream.size; )
     {
-      csv_key.ptr = trav_p;
+      comma_idx = stream_idx;
+      while (stream.ptr[++comma_idx] != ',');
 
-      trav_p = index(csv_key.ptr, ',');
-      if (!trav_p) return null;
-      csv_key.len = (int32_t)(trav_p - csv_key.ptr);
+      // TODO: This call will not work: needs a new Str8 starting from stream.ptr[comma_idx + 1]
+      match = str8_match(keys_arr[keys_idx], stream, comma_idx - stream_idx);
 
-      csv_path.ptr = trav_p + 1;
+      // Advance stream_idx one element past the next '\n'
+      while (stream.ptr[stream_idx++] != '\n');
+    }
 
-      trav_p = index(csv_path.ptr, '\n');
-      if (!trav_p) return null;
-      csv_path.len = (int32_t)(trav_p - csv_path.ptr);
+    if (match)
+    {
+      uint8_t *path_data = stream.ptr + comma_idx + 1;
 
-      match = str_match(path_keys[i], csv_key.ptr, str_len(path_keys[i]) 1);
-      if (match)
-      {
-        paths_buf[i] = csv_path;
-      }
-    } while (!match && *++trav_p)
+      paths_arr[paths_idx].ptr = path_data;
+      // Magic for now:
+      // stream_idx was incremented to one char past '\n' on the last for-loop iteration,
+      // so the expression in parentheses evaluates to a ptr to the last char before the '\n'.
+      paths_arr[paths_idx].size = (stream.ptr + stream_idx - 2) - path_data;
+      ++paths_idx;
+    }
   }
+
+  return paths_idx + 1;
 }
+
