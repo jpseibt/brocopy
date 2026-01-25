@@ -19,28 +19,15 @@
 #include <windows.h>
 #include "src/brocopy.h"
 
+#define ARENA_SIZE 2097152 /* 2MB */
 #define STDIN_BUF_SIZE 1048576 /* 1MB */
-#define GBUF_STACK_SIZE 20480
 #define MAX_PATH 260
 #define MAX_KEYS 20
 #define CSV_FILE_NAME "paths.csv"
+#define TEMP_PRN_PATH "D:\\JP\\brocopy\\pjobs\\temp_job.prn"
 
 // Prototypes
-//int32_t set_head_dir(char *buf, int32_t size);
-uint64_t set_csv_path(Str8 path_str);
 int32_t set_paths_buffer(Str8 *paths_arr, Str8 *keys_arr, int32_t n_keys, Str8 stream);
-
-  // Global general buffer (for testing!)
-uint8_t gbuf[GBUF_STACK_SIZE];
-uint8_t *gbuf_ptr = gbuf;
-
-//==================================================
-// TODO: Implement some Str8 formatting and tokenization.
-//==================================================
-
-// TODO: macro just for testing! No bounds check
-#define str8_at_gbuf(size) (Str8){ gbuf_ptr, size }; \
-  gbuf_ptr += (size)
 
 int main(int argc, char *argv[])
 {
@@ -50,86 +37,68 @@ int main(int argc, char *argv[])
     return 1;
   }
 
+  Arena arena = arena_alloc(ARENA_SIZE);
+  uint64_t slash_idx;
+  int32_t bytes_read_from_stream, bytes_written;
 
   //==================================================
-  // TODO: Implement configuration file parsing
+  // Buffer stdin stream and write a tmp file from it
   //==================================================
 
-  // Buffer up to 2KB of the stream on the stack (should be enough to hold ~20 windows paths)
-  Str8 csv_stream_buf = str8_at_gbuf(2048);
-  Str8 csv_path = str8_at_gbuf(MAX_PATH);
-  set_csv_path(csv_path);
-
-  FILE *fcsv = fopen((char*)csv_path.ptr, "r");
-  uint64_t fcsv_bytes_read = fread(csv_stream_buf.ptr, 1, csv_stream_buf.size, fcsv);
-  csv_stream_buf.size = fcsv_bytes_read;
-
-  Str8 keys[MAX_KEYS];
-  Str8 printer_paths[MAX_KEYS];
-
-  // Fill keys array from argv[1]
-  for (int32_t i = 1; i < argc; ++i)
-  {
-    keys[i-1] = str8_from_chptr(argv[i]);
-  }
-
-  set_paths_buffer(printer_paths, keys, argc - 1, csv_stream_buf);
-  fclose(fcsv);
-
-
-  // Put stdin stream into memory
-  uint8_t *job_buf = malloc(sizeof(uint8_t) * STDIN_BUF_SIZE);
-  int32_t bytes_read = fread(job_buf, 1, STDIN_BUF_SIZE, stdin);
+  Str8 stdin_buf = str8_push(&arena, STDIN_BUF_SIZE);
+  bytes_read_from_stream = fread(stdin_buf.ptr, 1, stdin_buf.size, stdin);
   if (ferror(stdin) || !feof(stdin))
   {
-    printf("Error while reading. Aborting...\n");
+    printf("Error while buffering standard input. Aborting...\n");
     return 1;
   }
+  printf("Bytes read from stdin: %d\n", bytes_read_from_stream);
 
-  printf("Bytes read from stdin: %d\n", bytes_read);
+  // NOTE: The Str8.ptr is safe to use as C strings if constructed using
+  // str8_pushf or str8_snprintf -> vsnprintf always null-terminates
 
   // Write buffered stdin to a temp file
-  char *temp_job_path = "D:\\JP\\brocopy\\pjobs\\temp_job.prn";
-  FILE *ftemp_job = fopen(temp_job_path, "wb");
-  int32_t bytes_written = fwrite(job_buf, 1, bytes_read, ftemp_job);
+  Str8 temp_job_path = str8_push(&arena, MAX_PATH);
+  str8_snprintf(temp_job_path, "%s", TEMP_PRN_PATH);
+
+  FILE *ftemp_job = fopen((char*)temp_job_path.ptr, "wb");
+  bytes_written = fwrite(stdin_buf.ptr, 1, bytes_read_from_stream, ftemp_job);
+  printf("Bytes written to %s: %d\n", temp_job_path.ptr, bytes_written);
   fclose(ftemp_job);
 
-  printf("Bytes written to %s: %d\n", temp_job_path, bytes_written);
+  //==================================================
+  // Buffer CSV_FILE_NAME stream
+  //==================================================
+
+  // Set a Str8 with the .exe full path
+  Str8 exe_path = str8_push(&arena, MAX_PATH);
+  GetModuleFileName(NULL, (char*)exe_path.ptr, exe_path.size);
+
+  // Set a slice with the .exe head directory
+  slash_idx = str8_index_last(exe_path, '\\');
+  Str8 slice_exe_dir = { exe_path.ptr, slash_idx };
+  Str8 csv_path = str8_pushf(&arena, "%.*s\\%s", slice_exe_dir.size, slice_exe_dir.ptr, CSV_FILE_NAME);
+
+  // Buffer up to 2KB of the .csv stream (should be enough to hold ~20 windows paths).
+  FILE *fcsv = fopen((char*)csv_path.ptr, "r");
+  Str8 csv_stream_buf = str8_push(&arena, 2048);
+  bytes_read_from_stream = fread(csv_stream_buf.ptr, 1, csv_stream_buf.size, fcsv);
+  printf("Bytes read from CSV file: %d\n", bytes_read_from_stream);
+  fclose(fcsv);
 
   //==================================================
   // TODO: Create log file with job sizes
   // ==================================================
-  //CopyFile(temp_file_path, "\\\\xxx.xx.xx.x\\02_REST_SOBREMESA", FALSE);
 
-  free(job_buf);
+  //==================================================
+  // TODO: Finish CSV file parsing to populate an array of paths using the keys received from argv
+  // ==================================================
 
+  //CopyFile(temp_file_path.ptr, paths[i], FALSE);
+
+  arena_free(&arena);
   return 0;
 }
-
-
-// TODO: mess function just for testing!
-// Set up a null terminated Str8 with the path of the CSV_FILE_NAME
-uint64_t set_csv_path(Str8 path_str)
-{
-  GetModuleFileName(NULL, (char*)path_str.ptr, path_str.size);
-
-  char *file_name = CSV_FILE_NAME;
-  uint64_t slash_idx = str8_index_last(path_str, '\\');
-
-  for (uint64_t i = slash_idx + 1; i < path_str.size; ++i)
-  {
-    path_str.ptr[i] = *file_name++;
-    if (*file_name == '\0')
-    {
-      path_str.ptr[++i] = *file_name;
-      path_str.size = i+1;
-      break;
-    }
-  }
-
-  return path_str.size;
-}
-
 
 // TODO: is an unfinished and half-refactored mess
 // Return number of paths that where succesfully parsed
@@ -172,4 +141,3 @@ int32_t set_paths_buffer(Str8 *paths_arr, Str8 *keys_arr, int32_t n_keys, Str8 s
 
   return paths_idx + 1;
 }
-

@@ -97,6 +97,18 @@ arena_clear(Arena *arena)
   arena->pos = 0;
 }
 
+static inline void
+arena_free(Arena *arena)
+{
+  if (arena->base)
+  {
+    free(arena->base);
+    arena->base = NULL;
+    arena->size = 0;
+    arena->pos = 0;
+  }
+}
+
 //==================================================
 // Scratch
 //==================================================
@@ -129,10 +141,9 @@ typedef struct Str8
   uint64_t size;
 } Str8;
 
-#define str8_from_buf(buf)    (Str8){ (uint8_t *)(buf), sizeof(buf) }
-#define str8_from_lit(lit)    (Str8){ (uint8_t *)(lit), sizeof(lit) - 1 }
-#define str8_from_cstr(ptr)  (Str8){ (uint8_t *)(ptr), str_len(ptr) } /* Assumes null terminated char* */
-
+#define str8_from_buf(buf)  (Str8){ (uint8_t *)(buf), sizeof(buf) }
+#define str8_from_lit(lit)  (Str8){ (uint8_t *)(lit), sizeof(lit) - 1 }
+#define str8_from_cstr(ptr) (Str8){ (uint8_t *)(ptr), str_len(ptr) } /* Assumes null terminated char* */
 
 static inline Str8
 str8_push(Arena *arena, uint64_t size)
@@ -164,12 +175,12 @@ str8_pushf(Arena *arena, char *fmt, ...)
 
 // Change elements of Str8 -> vsnprintf truncates new format if it exceed Str8 size
 static inline uint64_t
-str8_snprintf(Str8 *str, char *fmt, ...)
+str8_snprintf(Str8 str, char *fmt, ...)
 {
   va_list args;
   va_start(args, fmt);
 
-  int32_t written = vsnprintf((char*)str->ptr, str->size, fmt, args);
+  int32_t written = vsnprintf((char*)str.ptr, str.size, fmt, args);
   va_end(args);
 
   return (written < 0) ? 0 : (uint64_t)written;
