@@ -1,8 +1,10 @@
-#include "brocopy.h"
+#ifndef BROCOPY_H
+#include "brocopy.h" // only to make it possible to use -fsyntax-only
+#endif
 
-// Return 1 if the null terminated strings match up to `len` chars, zero otherwise
+// Return 1 if the cstrings match up to `len` chars, zero otherwise
 int32_t
-str_match(char *str0, char *str1, int32_t len, int32_t insensitive)
+static cstr_match(char *str0, char *str1, int32_t len, int32_t insensitive)
 {
   int32_t i = 0;
   if (insensitive)
@@ -28,8 +30,8 @@ str_match(char *str0, char *str1, int32_t len, int32_t insensitive)
 }
 
 // Append `s` to `buf` and return new length -> Truncate `s` if length of `buf` + `s` exceeds `size`
-uint32_t
-str_append(char *buf, char *s, uint32_t size)
+static uint32_t
+cstr_append(char *buf, char *s, uint32_t size)
 {
   if (size == 0) return 0;
 
@@ -47,9 +49,8 @@ str_append(char *buf, char *s, uint32_t size)
   return idx_buf;
 }
 
-
-char *
-index(char *buf_p, char ch)
+static char *
+cstr_index(char *buf_p, char ch)
 {
   while (*buf_p != '\0')
   {
