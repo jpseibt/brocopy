@@ -12,44 +12,49 @@
   -> RedMon overview - https://www.ghostgum.com.au/software/redmon.htm
   ==============================================================================*/
 
-#include <stdio.h>
-#include <stdint.h>
 #include <io.h>
 #include <fcntl.h>
 #include <windows.h>
+
 #include "src/brocopy.h"
+#include "src/arena.c"
+#include "src/cstring.c"
+#include "src/string.c"
 
 #define ARENA_SIZE 2097152 /* 2MB */
 #define STDIN_BUF_SIZE 1048576 /* 1MB */
 #define MAX_PATH 260
 #define MAX_KEYS 20
 #define CSV_FILE_NAME "paths.csv"
-#define TEMP_PRN_PATH "D:\\JP\\brocopy\\pjobs\\temp_job.prn"
+#define TEMP_PRN_PATH "C:\\Git\\brocopy\\pjobs\\temp_job.prn"
 
 // Prototypes
-int32_t set_paths_buffer(Str8 *paths_arr, Str8 *keys_arr, int32_t n_keys, Str8 stream);
+int32_t set_paths_arr(Arena *arena, Str8 *paths_arr, Str8 *keys_arr, int32_t amt_keys, Str8 stream);
 
 int main(int argc, char *argv[])
 {
-  if (_setmode(_fileno(stdin), _O_BINARY) == -1)
-  {
-    printf("Cannot set stdin to binary mode. Aborting...\n");
-    return 1;
-  }
-
   Arena arena = arena_alloc(ARENA_SIZE);
   uint64_t slash_idx;
   int32_t bytes_read_from_stream, bytes_written;
 
+
   //==================================================
   // Buffer stdin stream and write a tmp file from it
   //==================================================
+
+  if (_setmode(_fileno(stdin), _O_BINARY) == -1)
+  {
+    printf("Cannot set stdin to binary mode. Aborting...\n");
+    arena_free(&arena);
+    return 1;
+  }
 
   Str8 stdin_buf = str8_push(&arena, STDIN_BUF_SIZE);
   bytes_read_from_stream = fread(stdin_buf.ptr, 1, stdin_buf.size, stdin);
   if (ferror(stdin) || !feof(stdin))
   {
     printf("Error while buffering standard input. Aborting...\n");
+    arena_free(&arena);
     return 1;
   }
   printf("Bytes read from stdin: %d\n", bytes_read_from_stream);
@@ -66,8 +71,9 @@ int main(int argc, char *argv[])
   printf("Bytes written to %s: %d\n", temp_job_path.ptr, bytes_written);
   fclose(ftemp_job);
 
+
   //==================================================
-  // Buffer CSV_FILE_NAME stream
+  // Buffer .csv stream
   //==================================================
 
   // Set a Str8 with the .exe full path
@@ -79,65 +85,70 @@ int main(int argc, char *argv[])
   Str8 slice_exe_dir = { exe_path.ptr, slash_idx };
   Str8 csv_path = str8_pushf(&arena, "%.*s\\%s", slice_exe_dir.size, slice_exe_dir.ptr, CSV_FILE_NAME);
 
-  // Buffer up to 2KB of the .csv stream (should be enough to hold ~20 windows paths).
-  FILE *fcsv = fopen((char*)csv_path.ptr, "r");
-  Str8 csv_stream_buf = str8_push(&arena, 2048);
-  bytes_read_from_stream = fread(csv_stream_buf.ptr, 1, csv_stream_buf.size, fcsv);
-  printf("Bytes read from CSV file: %d\n", bytes_read_from_stream);
-  fclose(fcsv);
+  Str8 csv_stream_buf = str8_buffer_file(&arena, csv_path);
+  printf("Bytes read from CSV file: %llu\n", csv_stream_buf.size);
 
   //==================================================
   // TODO: Create log file with job sizes
   // ==================================================
 
   //==================================================
-  // TODO: Finish CSV file parsing to populate an array of paths using the keys received from argv
+  // TODO: Improve CSV file parsing to populate an array of paths using the keys received from argv
   // ==================================================
+  Str8 paths[argc - 1];
+  Str8 keys[argc - 1];
+  for (int i = 1; i < argc; ++i) 
+  {
+    keys[i-1] = str8_from_cstr(argv[i]);
+  }
 
-  //CopyFile(temp_file_path.ptr, paths[i], FALSE);
+  int32_t amt_paths = set_paths_arr(&arena, paths, keys, argc - 1, csv_stream_buf);
+
+  Scratch scratch = scratch_start(&arena);
+  Str8 dest_path = str8_push(&arena, MAX_PATH);
+
+  for (int32_t i = 0; i < amt_paths; ++i)
+  {
+    str8_snprintf(dest_path, "%.*s\\%s", (int)paths[i].size, paths[i].ptr, "test.txt");
+    CopyFile((char*)temp_job_path.ptr, (char*)dest_path.ptr, FALSE);
+    printf("\"%s\" file copied to \"%s\"\n", temp_job_path.ptr, paths[i].ptr);
+  }
+
+  scratch_end(scratch);
 
   arena_free(&arena);
   return 0;
 }
 
-// TODO: is an unfinished and half-refactored mess
+// TODO: Maybe passing the paths and keys arrays as a linked list would be the best approach
 // Return number of paths that where succesfully parsed
-int32_t set_paths_buffer(Str8 *paths_arr, Str8 *keys_arr, int32_t n_keys, Str8 stream)
+int32_t set_paths_arr(Arena *arena, Str8 *paths_arr, Str8 *keys_arr, int32_t amt_keys, Str8 stream)
 {
-  int32_t paths_idx, keys_idx, match;
-  uint64_t stream_idx, data_start_idx, comma_idx;
+  // Skip .csv header row
+  int32_t paths_idx = 0;
+  uint64_t data_start_idx = str8_index(stream, '\n') + 1;
+  Str8 stream_cursor, line;
 
-  paths_idx = keys_idx = match = 0;
-  data_start_idx = str8_index(stream, '\n') + 1; // Skip .csv header row
-
-  for (; keys_idx < n_keys; ++keys_idx)
+  for (int32_t i = 0; i < amt_keys; ++i)
   {
-    stream_idx = data_start_idx;
+    stream_cursor = str8_skip(stream, data_start_idx);
 
-    for (match = 0; !match && stream_idx < stream.size; )
+    do
     {
-      comma_idx = stream_idx;
-      while (stream.ptr[++comma_idx] != ',');
+      line = str8_prefix(stream_cursor, str8_index(stream_cursor, '\n'));
+      Str8 key_slice = str8_prefix(line, str8_index(line, ','));
+      Str8 path_slice = str8_postfix(line, line.size - str8_index(line, ',') - 1);
 
-      // TODO: This call will not work: needs a new Str8 starting from stream.ptr[comma_idx + 1]
-      match = str8_match(keys_arr[keys_idx], stream, comma_idx - stream_idx);
+      if (str8_match(keys_arr[i], key_slice, keys_arr[i].size))
+      {
+        paths_arr[paths_idx] = str8_pushf(arena, "%.*s", (int)str8_index(path_slice, '\r'), path_slice.ptr);
+        ++paths_idx;
+      }
 
-      // Advance stream_idx one element past the next '\n'
-      while (stream.ptr[stream_idx++] != '\n');
+      stream_cursor = str8_skip(stream_cursor, line.size + 1);
     }
-
-    if (match)
-    {
-      uint8_t *path_data = stream.ptr + comma_idx + 1;
-
-      paths_arr[paths_idx].ptr = path_data;
-      // Magic for now:
-      // stream_idx was incremented to one char past '\n' on the last for-loop iteration,
-      // so the expression in parentheses evaluates to a ptr to the last char before the '\n'.
-      paths_arr[paths_idx].size = (stream.ptr + stream_idx - 2) - path_data;
-      ++paths_idx;
-    }
+    while (stream_cursor.size > 0);
   }
 
-  return paths_idx + 1;
+  return paths_idx;
 }

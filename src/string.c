@@ -9,7 +9,7 @@
 static Str8
 str8_push(Arena *arena, uint64_t size)
 {
-  return (Str8){ arena_push(arena, size), size };
+  return (Str8){ (uint8_t*)arena_push(arena, size), size };
 }
 
 static Str8
@@ -106,7 +106,6 @@ str8_match_insensitive(Str8 lhs, Str8 rhs, uint64_t n)
   return 1;
 }
 
-// Return `str.size` if `ch` not found
 static uint64_t
 str8_index(Str8 str, uint8_t ch)
 {
@@ -131,7 +130,6 @@ str8_index_last(Str8 str, uint8_t ch)
   return str.size;
 }
 
-// Return `str.size` if substring not found
 static uint64_t
 str8_index_substr(Str8 str, Str8 sub)
 {
@@ -169,6 +167,32 @@ str8_index_substr_last(Str8 str, Str8 sub)
 }
 
 static Str8
+str8_skip(Str8 str, uint64_t n)
+{
+  n = (n > str.size) ? str.size : n;
+  str.ptr += n;
+  str.size -= n;
+  return str;
+}
+
+static Str8
+str8_prefix(Str8 str, uint64_t size)
+{
+  size = (size > str.size) ? str.size : size;
+  str.size = size;
+  return str;
+}
+
+static Str8
+str8_postfix(Str8 str, uint64_t size)
+{
+  size = (size > str.size) ? str.size : size;
+  str.ptr = (str.ptr + str.size) - size;
+  str.size = size;
+  return str;
+}
+
+static Str8
 str8_buffer_file(Arena *arena, Str8 path)
 {
   Str8 result = {0};
@@ -192,3 +216,4 @@ str8_buffer_file(Arena *arena, Str8 path)
 
   return result;
 }
+

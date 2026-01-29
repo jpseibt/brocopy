@@ -93,6 +93,10 @@ static uint64_t str8_index_last(Str8 str, uint8_t ch);
 static uint64_t str8_index_substr(Str8 str, Str8 sub);
 static uint64_t str8_index_substr_last(Str8 str, Str8 sub);
 
+static Str8 str8_skip(Str8 str, uint64_t n);
+static Str8 str8_prefix(Str8 str, uint64_t n);
+static Str8 str8_postfix(Str8 str, uint64_t n);
+
 static Str8 str8_buffer_file(Arena *arena, Str8 path);
 
 //==================================================
@@ -104,3 +108,4 @@ uint32_t str_append(char *buf, char *s, uint32_t size);
 char *index(char *buf_p, char ch);
 
 #endif // BROCOPY_H
+
