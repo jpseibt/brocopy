@@ -1,6 +1,6 @@
 /*==============================================================================
   The idea of brocopy is to "broadcast" a file received on its standard input,
-  copying it to paths defined on a .csv based on "keys" passed as arguments.
+  copying it to paths defined in a .csv based on "keys" passed as arguments.
 
   Example .csv:
                 key,path
@@ -8,8 +8,14 @@
                 bar,\\123.12.1.12\bar\
 
   This program aims to send a print job to n printers, using a RedMon redirected port
-  that calls it with args that will be used as keys and forward the job to stdin.
+  that calls it with args that will be used as keys and forwards the job to stdin.
   -> RedMon overview - https://www.ghostgum.com.au/software/redmon.htm
+
+  TODO: Explore an implementation with a Mfilemon port, as it can be configured to
+  create a file from the printer's driver output and pass its path to a program, also
+  with `Run as user` and `Domain` configurations for the launched program, which would
+  help with network file transfers and integration with Windows Server.
+  -> Mfilemon repo - https://github.com/lomo74/mfilemon
   ==============================================================================*/
 
 #include <io.h>
@@ -26,7 +32,10 @@
 #define MAX_PATH 260
 #define MAX_KEYS 20
 #define CSV_FILE_NAME "paths.csv"
-#define TEMP_PRN_PATH "C:\\Git\\brocopy\\pjobs\\temp_job.prn"
+#define TEMP_PRN_PATH "D:\\JP\\brocopy\\pjobs\\temp_job.prn"
+#define LOGS_PATH "D:\\JP\\brocopy\\logs\\broadlog.txt"
+#define LOG_SEP_LINE "==================================================\n"
+
 
 // Prototypes
 int32_t set_paths_arr(Arena *arena, Str8 *paths_arr, Str8 *keys_arr, int32_t amt_keys, Str8 stream);
@@ -36,6 +45,8 @@ int main(int argc, char *argv[])
   Arena arena = arena_alloc(ARENA_SIZE);
   uint64_t slash_idx;
   int32_t bytes_read_from_stream, bytes_written;
+  FILE *log_stream = fopen(LOGS_PATH, "a");
+  fprintf(log_stream, LOG_SEP_LINE);
 
 
   //==================================================
@@ -44,7 +55,9 @@ int main(int argc, char *argv[])
 
   if (_setmode(_fileno(stdin), _O_BINARY) == -1)
   {
-    printf("Cannot set stdin to binary mode. Aborting...\n");
+    fprintf(log_stream, "Cannot set stdin to binary mode. Aborting...\n");
+    fprintf(log_stream, LOG_SEP_LINE);
+    fclose(log_stream);
     arena_free(&arena);
     return 1;
   }
@@ -53,11 +66,13 @@ int main(int argc, char *argv[])
   bytes_read_from_stream = fread(stdin_buf.ptr, 1, stdin_buf.size, stdin);
   if (ferror(stdin) || !feof(stdin))
   {
-    printf("Error while buffering standard input. Aborting...\n");
+    fprintf(log_stream, "Error while buffering standard input. Aborting...\n");
+    fprintf(log_stream, LOG_SEP_LINE);
+    fclose(log_stream);
     arena_free(&arena);
     return 1;
   }
-  printf("Bytes read from stdin: %d\n", bytes_read_from_stream);
+  fprintf(log_stream, "Bytes read from stdin: %d\n", bytes_read_from_stream);
 
   // NOTE: The Str8.ptr is safe to use as C strings if constructed using
   // str8_pushf or str8_snprintf -> vsnprintf always null-terminates
@@ -68,7 +83,7 @@ int main(int argc, char *argv[])
 
   FILE *ftemp_job = fopen((char*)temp_job_path.ptr, "wb");
   bytes_written = fwrite(stdin_buf.ptr, 1, bytes_read_from_stream, ftemp_job);
-  printf("Bytes written to %s: %d\n", temp_job_path.ptr, bytes_written);
+  fprintf(log_stream, "Bytes written to %s: %d\n", temp_job_path.ptr, bytes_written);
   fclose(ftemp_job);
 
 
@@ -86,11 +101,7 @@ int main(int argc, char *argv[])
   Str8 csv_path = str8_pushf(&arena, "%.*s\\%s", slice_exe_dir.size, slice_exe_dir.ptr, CSV_FILE_NAME);
 
   Str8 csv_stream_buf = str8_buffer_file(&arena, csv_path);
-  printf("Bytes read from CSV file: %llu\n", csv_stream_buf.size);
-
-  //==================================================
-  // TODO: Create log file with job sizes
-  // ==================================================
+  fprintf(log_stream, "Bytes read from CSV file: %llu\n", csv_stream_buf.size);
 
   //==================================================
   // TODO: Improve CSV file parsing to populate an array of paths using the keys received from argv
@@ -109,12 +120,21 @@ int main(int argc, char *argv[])
 
   for (int32_t i = 0; i < amt_paths; ++i)
   {
-    str8_snprintf(dest_path, "%.*s\\%s", (int)paths[i].size, paths[i].ptr, "test.txt");
-    CopyFile((char*)temp_job_path.ptr, (char*)dest_path.ptr, FALSE);
-    printf("\"%s\" file copied to \"%s\"\n", temp_job_path.ptr, paths[i].ptr);
+    str8_snprintf(dest_path, "%.*s", (int)paths[i].size, paths[i].ptr);
+    if (CopyFile((char*)temp_job_path.ptr, (char*)dest_path.ptr, FALSE))
+    {
+      fprintf(log_stream, "\"%s\" file copied to \"%s\"\n", temp_job_path.ptr, paths[i].ptr);
+    }
+    else
+    {
+      fprintf(log_stream, "Failed to copy \"%s\" to \"%s\"\n", temp_job_path.ptr, paths[i].ptr);
+    }
   }
 
   scratch_end(scratch);
+
+  fprintf(log_stream, LOG_SEP_LINE);
+  fclose(log_stream);
 
   arena_free(&arena);
   return 0;
