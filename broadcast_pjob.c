@@ -7,20 +7,23 @@
                 foo,C:\foo\
                 bar,\\123.12.1.12\bar\
 
-  This program aims to send a print job to n printers, using a RedMon redirected port
-  that calls it with args that will be used as keys and forwards the job to stdin.
-  -> RedMon overview - https://www.ghostgum.com.au/software/redmon.htm
+  This program aims to send a print job to n printers, using a Mfilemon port
+  that is configured to create a file from the printer's driver output and pass
+  its path to the program (argv[1]), the path to the CSV file that defines the
+  destination paths (argv[2]), and one or more "keys" (argv[3]...) that will be
+  matched against the first column of the given CSV.
 
-  TODO: Explore an implementation with a Mfilemon port, as it can be configured to
-  create a file from the printer's driver output and pass its path to a program, also
-  with `Run as user` and `Domain` configurations for the launched program, which would
-  help with network file transfers and integration with Windows Server.
   -> Mfilemon repo - https://github.com/lomo74/mfilemon
+
+  TODO: Explore implementation with Mfilemon port, as it can also be configured
+  to `Run as user` and with a `Domain` configuration for the launched program,
+  which would help with network file transfers and integration with Windows Server.
   ==============================================================================*/
 
 #include <io.h>
 #include <fcntl.h>
 #include <windows.h>
+#include <time.h>
 
 #include "src/brocopy.h"
 #include "src/arena.c"
@@ -28,116 +31,110 @@
 #include "src/string.c"
 
 #define ARENA_SIZE 2097152 /* 2MB */
-#define STDIN_BUF_SIZE 1048576 /* 1MB */
 #define MAX_PATH 260
-#define MAX_KEYS 20
-#define CSV_FILE_NAME "paths.csv"
-#define TEMP_PRN_PATH "D:\\JP\\brocopy\\pjobs\\temp_job.prn"
 #define LOGS_PATH "D:\\JP\\brocopy\\logs\\broadlog.txt"
 #define LOG_SEP_LINE "==================================================\n"
+#define DATE_HOUR_FSTR "%Y-%m-%d %H:%M:%S"
+#define HELP_TEXT \
+    "Usage: broadcast_pjob.exe <src_path> <csv_path> <key> [<key> ...]\n"    \
+    "Args:\n"                                                                \
+    "     <src_path>\tPath to the source file.\n"                            \
+    "     <csv_path>\tPath to the .csv file defining copy destination.\n"    \
+    "     <key>...  \tOne or more keys to match in the .csv first column.\n" \
 
+// NOTE: The Str8.ptr is safe to use as C strings if constructed using
+// str8_pushf or str8_snprintf -> vsnprintf always null-terminates
 
 // Prototypes
-int32_t set_paths_arr(Arena *arena, Str8 *paths_arr, Str8 *keys_arr, int32_t amt_keys, Str8 stream);
+static void log_date_hour(Arena *scratch, FILE *stream);
+static int32_t set_paths_arr(Arena *arena, Str8 *paths_arr, Str8 *keys_arr, int32_t amt_keys, Str8 stream);
 
 int main(int argc, char *argv[])
 {
   Arena arena = arena_alloc(ARENA_SIZE);
-  uint64_t slash_idx;
-  int32_t bytes_read_from_stream, bytes_written;
   FILE *log_stream = fopen(LOGS_PATH, "a");
-  fprintf(log_stream, LOG_SEP_LINE);
 
+  log_date_hour(&arena, log_stream);
 
   //==================================================
-  // Buffer stdin stream and write a tmp file from it
+  // Process args
   //==================================================
-
-  if (_setmode(_fileno(stdin), _O_BINARY) == -1)
+  if (argc < 4)
   {
-    fprintf(log_stream, "Cannot set stdin to binary mode. Aborting...\n");
+    fprintf(stderr, HELP_TEXT);
+    fprintf(log_stream, "Not enough arguments provided (argc=%d)...\n", argc);
     fprintf(log_stream, LOG_SEP_LINE);
     fclose(log_stream);
     arena_free(&arena);
     return 1;
   }
 
-  Str8 stdin_buf = str8_push(&arena, STDIN_BUF_SIZE);
-  bytes_read_from_stream = fread(stdin_buf.ptr, 1, stdin_buf.size, stdin);
-  if (ferror(stdin) || !feof(stdin))
+  int32_t amt_keys = argc - 3;
+  Str8 src_path = str8_from_cstr_term(argv[1]);
+  Str8 csv_path = str8_from_cstr_term(argv[2]);
+  Str8 keys[amt_keys];
+
+  // Fill keys array starting from the 4th arg
+  for (int32_t i = 3; i < argc; ++i)
   {
-    fprintf(log_stream, "Error while buffering standard input. Aborting...\n");
-    fprintf(log_stream, LOG_SEP_LINE);
-    fclose(log_stream);
-    arena_free(&arena);
-    return 1;
+    keys[i - 3] = str8_from_cstr(argv[i]);
   }
-  fprintf(log_stream, "Bytes read from stdin: %d\n", bytes_read_from_stream);
-
-  // NOTE: The Str8.ptr is safe to use as C strings if constructed using
-  // str8_pushf or str8_snprintf -> vsnprintf always null-terminates
-
-  // Write buffered stdin to a temp file
-  Str8 temp_job_path = str8_push(&arena, MAX_PATH);
-  str8_snprintf(temp_job_path, "%s", TEMP_PRN_PATH);
-
-  FILE *ftemp_job = fopen((char*)temp_job_path.ptr, "wb");
-  bytes_written = fwrite(stdin_buf.ptr, 1, bytes_read_from_stream, ftemp_job);
-  fprintf(log_stream, "Bytes written to %s: %d\n", temp_job_path.ptr, bytes_written);
-  fclose(ftemp_job);
-
 
   //==================================================
-  // Buffer .csv stream
+  // Buffer .csv stream, parse it, and copy files
   //==================================================
-
-  // Set a Str8 with the .exe full path
-  Str8 exe_path = str8_push(&arena, MAX_PATH);
-  GetModuleFileName(NULL, (char*)exe_path.ptr, exe_path.size);
-
-  // Set a slice with the .exe head directory
-  slash_idx = str8_index_last(exe_path, '\\');
-  Str8 slice_exe_dir = { exe_path.ptr, slash_idx };
-  Str8 csv_path = str8_pushf(&arena, "%.*s\\%s", slice_exe_dir.size, slice_exe_dir.ptr, CSV_FILE_NAME);
-
   Str8 csv_stream_buf = str8_buffer_file(&arena, csv_path);
-  fprintf(log_stream, "Bytes read from CSV file: %llu\n", csv_stream_buf.size);
 
-  //==================================================
-  // TODO: Improve CSV file parsing to populate an array of paths using the keys received from argv
-  // ==================================================
-  Str8 paths[argc - 1];
-  Str8 keys[argc - 1];
-  for (int i = 1; i < argc; ++i) 
+  if (csv_stream_buf.ptr == 0)
   {
-    keys[i-1] = str8_from_cstr(argv[i]);
+    fprintf(log_stream, "Error while opening the CSV (\"%s\")\n", (char*)csv_path.ptr);
+    fprintf(log_stream, LOG_SEP_LINE);
+    fclose(log_stream);
+    arena_free(&arena);
+    return 1;
   }
 
-  int32_t amt_paths = set_paths_arr(&arena, paths, keys, argc - 1, csv_stream_buf);
+  fprintf(log_stream, "Bytes read from CSV (\"%s\"): %llu\n", (char*)csv_path.ptr, csv_stream_buf.size);
 
-  Scratch scratch = scratch_start(&arena);
+  // TODO: Improve CSV file parsing to populate an array of paths (Str8 Linked List)
+  Str8 paths[amt_keys];
+  int32_t amt_paths = set_paths_arr(&arena, paths, keys, amt_keys, csv_stream_buf);
+  fprintf(log_stream, "Amount of matches in CSV from arg keys: %d out of %d\n", amt_paths, amt_keys);
+
   Str8 dest_path = str8_push(&arena, MAX_PATH);
 
   for (int32_t i = 0; i < amt_paths; ++i)
   {
     str8_snprintf(dest_path, "%.*s", (int)paths[i].size, paths[i].ptr);
-    if (CopyFile((char*)temp_job_path.ptr, (char*)dest_path.ptr, FALSE))
+    if (CopyFile((char*)src_path.ptr, (char*)dest_path.ptr, FALSE))
     {
-      fprintf(log_stream, "\"%s\" file copied to \"%s\"\n", temp_job_path.ptr, paths[i].ptr);
+      fprintf(log_stream, "\"%s\" file copied to \"%s\"\n", (char*)src_path.ptr, (char*)paths[i].ptr);
     }
     else
     {
-      fprintf(log_stream, "Failed to copy \"%s\" to \"%s\"\n", temp_job_path.ptr, paths[i].ptr);
+      fprintf(log_stream, "Failed to copy \"%s\" to \"%s\"\n", (char*)src_path.ptr, (char*)paths[i].ptr);
     }
   }
 
-  scratch_end(scratch);
-
   fprintf(log_stream, LOG_SEP_LINE);
   fclose(log_stream);
-
   arena_free(&arena);
   return 0;
+}
+
+static void
+log_date_hour(Arena *scratch, FILE *stream)
+{
+  Scratch tmp = scratch_start(scratch);
+
+  struct tm *t = localtime(&(time_t){time(NULL)});
+  Str8 time_str = str8_push(scratch, 32);
+  strftime((char*)time_str.ptr, time_str.size, DATE_HOUR_FSTR, t);
+
+  fprintf(stream, LOG_SEP_LINE);
+  fprintf(stream, "%s\n", time_str.ptr);
+
+  scratch_end(tmp);
 }
 
 // TODO: Maybe passing the paths and keys arrays as a linked list would be the best approach

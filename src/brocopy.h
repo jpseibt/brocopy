@@ -76,7 +76,8 @@ typedef struct Str8
 
 #define str8_from_buf(buf)  (Str8){ (uint8_t *)(buf), sizeof(buf) }
 #define str8_from_lit(lit)  (Str8){ (uint8_t *)(lit), sizeof(lit) - 1 }
-#define str8_from_cstr(ptr) (Str8){ (uint8_t *)(ptr), str_len(ptr) } /* Assumes null terminated char* */
+#define str8_from_cstr(ptr) (Str8){ (uint8_t *)(ptr), str_len(ptr) }         /* Assumes null terminated char* */
+#define str8_from_cstr_term(ptr) (Str8){ (uint8_t *)(ptr), str_len(ptr) + 1} /* Preserve null terminator */
 
 static Str8 str8_push(Arena *arena, uint64_t size);
 static Str8 str8_pushf(Arena *arena, char *fmt, ...);
