@@ -1,11 +1,21 @@
 /*==============================================================================
-  The idea of brocopy is to "broadcast" a file received on its standard input,
-  copying it to paths defined in a .csv based on "keys" passed as arguments.
+  The idea of brocopy is to "broadcast" a file, copying it to paths defined in a
+  .csv based on "keys" passed as arguments.
 
   Example .csv:
                 key,path
-                foo,C:\foo\
-                bar,\\123.12.1.12\bar\
+                foo,C:\foo\bar\baz\bro.prn
+                bar,\\123.12.1.12\Users\jose.seibt\Documents\foo\bro.prn
+                baz,\\localhost\SharedPrinter
+
+  Example call:
+                broadcast_pjob.exe D:\foo\bar\baz\file.out D:\bar\paths.csv foo bar baz
+                                                                             ^   ^   ^
+                                                                             1   2   3
+  Copies "D:\foo\bar\baz\file.out" to:
+                1. "C:\foo\bar\baz\bro.prn"
+                2. "\\123.12.1.12\Users\jose.seibt\Documents\foo\bro.prn"
+                3. "\\localhost\SharedPrinter"
 
   This program aims to send a print job to n printers, using a Mfilemon port
   that is configured to create a file from the printer's driver output and pass
@@ -13,11 +23,8 @@
   destination paths (argv[2]), and one or more "keys" (argv[3]...) that will be
   matched against the first column of the given CSV.
 
-  -> Mfilemon repo - https://github.com/lomo74/mfilemon
-
-  TODO: Explore implementation with Mfilemon port, as it can also be configured
-  to `Run as user` and with a `Domain` configuration for the launched program,
-  which would help with network file transfers and integration with Windows Server.
+  -> Mfilemon repo  - https://github.com/lomo74/mfilemon
+  -> J. Paulo Seibt - https://jpseibt.github.io
   ==============================================================================*/
 
 #include <io.h>
@@ -32,9 +39,8 @@
 
 #define ARENA_SIZE 2097152 /* 2MB */
 #define MAX_PATH 260
-#define LOGS_PATH "D:\\JP\\brocopy\\logs\\broadlog.txt"
+#define MAX_KEYS 20
 #define LOG_SEP_LINE "==================================================\n"
-#define DATE_HOUR_FSTR "%Y-%m-%d %H:%M:%S"
 #define HELP_TEXT \
     "Usage: broadcast_pjob.exe <src_path> <csv_path> <key> [<key> ...]\n"    \
     "Args:\n"                                                                \
@@ -42,7 +48,7 @@
     "     <csv_path>\tPath to the .csv file defining copy destination.\n"    \
     "     <key>...  \tOne or more keys to match in the .csv first column.\n" \
 
-// NOTE: The Str8.ptr is safe to use as C strings if constructed using
+// NOTE: The Str8.ptr is safe to use as a C string if constructed using
 // str8_pushf or str8_snprintf -> vsnprintf always null-terminates
 
 // Prototypes
@@ -52,8 +58,14 @@ static int32_t set_paths_arr(Arena *arena, Str8 *paths_arr, Str8 *keys_arr, int3
 int main(int argc, char *argv[])
 {
   Arena arena = arena_alloc(ARENA_SIZE);
-  FILE *log_stream = fopen(LOGS_PATH, "a");
-
+  Str8 log_path = str8_push(&arena, MAX_PATH);
+  { // Set log_path to /head/directory/log.txt (%:h/log.txt)
+    Str8 slice_head = { log_path.ptr, log_path.size };
+    GetModuleFileName(NULL, (char*)slice_head.ptr, slice_head.size);
+    slice_head.size = str8_index_last(slice_head, '\\');
+    str8_snprintf(log_path, "%.*s\\log.txt", slice_head.size, (char*)slice_head.ptr);
+  }
+  FILE *log_stream = fopen((char*)log_path.ptr, "a");
   log_date_hour(&arena, log_stream);
 
   //==================================================
@@ -69,15 +81,20 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  int32_t amt_keys = argc - 3;
   Str8 src_path = str8_from_cstr_term(argv[1]);
   Str8 csv_path = str8_from_cstr_term(argv[2]);
-  Str8 keys[amt_keys];
+  Str8 keys[MAX_KEYS];
+  int32_t amt_keys = argc - 3;
+  if (amt_keys > MAX_KEYS)
+  {
+    fprintf(log_stream, "Warning: Too many keys passed (%d). Truncated to MAX_KEYS=%d\n", amt_keys, MAX_KEYS);
+    amt_keys = MAX_KEYS;
+  }
 
   // Fill keys array starting from the 4th arg
-  for (int32_t i = 3; i < argc; ++i)
+  for (int32_t i = 0; i < amt_keys; ++i)
   {
-    keys[i - 3] = str8_from_cstr(argv[i]);
+    keys[i] = str8_from_cstr(argv[i + 3]);
   }
 
   //==================================================
@@ -87,7 +104,7 @@ int main(int argc, char *argv[])
 
   if (csv_stream_buf.ptr == 0)
   {
-    fprintf(log_stream, "Error while opening the CSV (\"%s\")\n", (char*)csv_path.ptr);
+    fprintf(log_stream, "Error: could not open the CSV (\"%s\")\n", (char*)csv_path.ptr);
     fprintf(log_stream, LOG_SEP_LINE);
     fclose(log_stream);
     arena_free(&arena);
@@ -97,7 +114,7 @@ int main(int argc, char *argv[])
   fprintf(log_stream, "Bytes read from CSV (\"%s\"): %llu\n", (char*)csv_path.ptr, csv_stream_buf.size);
 
   // TODO: Improve CSV file parsing to populate an array of paths (Str8 Linked List)
-  Str8 paths[amt_keys];
+  Str8 paths[MAX_KEYS];
   int32_t amt_paths = set_paths_arr(&arena, paths, keys, amt_keys, csv_stream_buf);
   fprintf(log_stream, "Amount of matches in CSV from arg keys: %d out of %d\n", amt_paths, amt_keys);
 
@@ -122,6 +139,7 @@ int main(int argc, char *argv[])
   return 0;
 }
 
+
 static void
 log_date_hour(Arena *scratch, FILE *stream)
 {
@@ -129,7 +147,7 @@ log_date_hour(Arena *scratch, FILE *stream)
 
   struct tm *t = localtime(&(time_t){time(NULL)});
   Str8 time_str = str8_push(scratch, 32);
-  strftime((char*)time_str.ptr, time_str.size, DATE_HOUR_FSTR, t);
+  strftime((char*)time_str.ptr, time_str.size, "%Y-%m-%d %H:%M:%S", t);
 
   fprintf(stream, LOG_SEP_LINE);
   fprintf(stream, "%s\n", time_str.ptr);
@@ -156,7 +174,7 @@ int32_t set_paths_arr(Arena *arena, Str8 *paths_arr, Str8 *keys_arr, int32_t amt
       Str8 key_slice = str8_prefix(line, str8_index(line, ','));
       Str8 path_slice = str8_postfix(line, line.size - str8_index(line, ',') - 1);
 
-      if (str8_match(keys_arr[i], key_slice, keys_arr[i].size))
+      if (str8_match(keys_arr[i], key_slice, key_slice.size))
       {
         paths_arr[paths_idx] = str8_pushf(arena, "%.*s", (int)str8_index(path_slice, '\r'), path_slice.ptr);
         ++paths_idx;
