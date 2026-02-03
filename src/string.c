@@ -34,6 +34,35 @@ str8_pushf(Arena *arena, char *fmt, ...)
   return result;
 }
 
+static Str8Node *
+str8_list_push(Arena *arena, Str8List *list)
+{
+  Str8Node *node = (Str8Node*)arena_push(arena, sizeof(Str8Node));
+  if (!node) return NULL;
+
+  node->next = NULL;
+  node->str.ptr = NULL;
+  node->str.size = 0;
+
+  if (list->head == NULL)
+  { // First node in the list
+    list->head = list->tail = node;
+  }
+  else
+  {
+    list->tail->next = node;
+    list->tail = node;
+  }
+
+  return node;
+}
+
+static Str8
+str8_append(Arena *arena, Str8 lhs, Str8 rhs)
+{
+  return str8_pushf(arena, "%.*s%.*s", (int)lhs.size, lhs.ptr, (int)rhs.size, rhs.ptr);
+}
+
 // Change elements of Str8 -> vsnprintf truncates new format if it exceed Str8 size
 static uint64_t
 str8_snprintf(Str8 str, char *fmt, ...)
@@ -45,12 +74,6 @@ str8_snprintf(Str8 str, char *fmt, ...)
   va_end(args);
 
   return (written < 0) ? 0 : (uint64_t)written;
-}
-
-static Str8
-str8_append(Arena *arena, Str8 lhs, Str8 rhs)
-{
-  return str8_pushf(arena, "%.*s%.*s", (int)lhs.size, lhs.ptr, (int)rhs.size, rhs.ptr);
 }
 
 static int32_t

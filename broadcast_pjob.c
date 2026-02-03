@@ -37,9 +37,9 @@
 #include "src/cstring.c"
 #include "src/string.c"
 
-#define ARENA_SIZE 2097152 /* 2MB */
+#define ARENA_SIZE 1048576 /* 1MB */
 #define MAX_PATH 260
-#define MAX_KEYS 20
+#define MAX_KEYS 1000
 #define LOG_SEP_LINE "==================================================\n"
 #define HELP_TEXT \
     "Usage: broadcast_pjob.exe <src_path> <csv_path> <key> [<key> ...]\n"    \
@@ -53,7 +53,7 @@
 
 // Prototypes
 static void log_date_hour(Arena *scratch, FILE *stream);
-static int32_t set_paths_arr(Arena *arena, Str8 *paths_arr, Str8 *keys_arr, int32_t amt_keys, Str8 stream);
+static int32_t set_paths_list(Arena *arena, Str8List *paths_list, Str8List *keys_list, Str8 stream);
 
 int main(int argc, char *argv[])
 {
@@ -83,18 +83,28 @@ int main(int argc, char *argv[])
 
   Str8 src_path = str8_from_cstr_term(argv[1]);
   Str8 csv_path = str8_from_cstr_term(argv[2]);
-  Str8 keys[MAX_KEYS];
+  Str8List keys = {0};
   int32_t amt_keys = argc - 3;
+
   if (amt_keys > MAX_KEYS)
   {
     fprintf(log_stream, "Warning: Too many keys passed (%d). Truncated to MAX_KEYS=%d\n", amt_keys, MAX_KEYS);
     amt_keys = MAX_KEYS;
   }
 
-  // Fill keys array starting from the 4th arg
+  // Fill keys list starting from the 4th arg
   for (int32_t i = 0; i < amt_keys; ++i)
   {
-    keys[i] = str8_from_cstr(argv[i + 3]);
+    Str8Node *new_node = str8_list_push(&arena, &keys);
+    if (!new_node)
+    { // Highly unlikely, but still
+      fprintf(log_stream, "Arena full. Aborting...\n");
+      fprintf(log_stream, LOG_SEP_LINE);
+      fclose(log_stream);
+      arena_free(&arena);
+      return 1;
+    }
+    new_node->str = str8_pushf(&arena, argv[i+3]);
   }
 
   //==================================================
@@ -113,23 +123,23 @@ int main(int argc, char *argv[])
 
   fprintf(log_stream, "Bytes read from CSV (\"%s\"): %llu\n", (char*)csv_path.ptr, csv_stream_buf.size);
 
-  // TODO: Improve CSV file parsing to populate an array of paths (Str8 Linked List)
-  Str8 paths[MAX_KEYS];
-  int32_t amt_paths = set_paths_arr(&arena, paths, keys, amt_keys, csv_stream_buf);
+  Str8List paths = {0};
+  int32_t amt_paths = set_paths_list(&arena, &paths, &keys, csv_stream_buf);
   fprintf(log_stream, "Amount of matches in CSV from arg keys: %d out of %d\n", amt_paths, amt_keys);
 
   Str8 dest_path = str8_push(&arena, MAX_PATH);
 
-  for (int32_t i = 0; i < amt_paths; ++i)
+  for (Str8Node *curr_node = paths.head; curr_node != NULL; curr_node = curr_node->next)
   {
-    str8_snprintf(dest_path, "%.*s", (int)paths[i].size, paths[i].ptr);
+    str8_snprintf(dest_path, "%.*s", (int)curr_node->str.size, ()curr_node->str.ptr);
+
     if (CopyFile((char*)src_path.ptr, (char*)dest_path.ptr, FALSE))
     {
-      fprintf(log_stream, "\"%s\" file copied to \"%s\"\n", (char*)src_path.ptr, (char*)paths[i].ptr);
+      fprintf(log_stream, "\"%s\" file copied to \"%s\"\n", (char*)src_path.ptr, (char*)dest_path.ptr);
     }
     else
     {
-      fprintf(log_stream, "Failed to copy \"%s\" to \"%s\"\n", (char*)src_path.ptr, (char*)paths[i].ptr);
+      fprintf(log_stream, "Failed to copy \"%s\" to \"%s\"\n", (char*)src_path.ptr, (char*)dest_path.ptr);
     }
   }
 
@@ -155,35 +165,32 @@ log_date_hour(Arena *scratch, FILE *stream)
   scratch_end(tmp);
 }
 
-// TODO: Maybe passing the paths and keys arrays as a linked list would be the best approach
 // Return number of paths that where succesfully parsed
-int32_t set_paths_arr(Arena *arena, Str8 *paths_arr, Str8 *keys_arr, int32_t amt_keys, Str8 stream)
+static int32_t set_paths_list(Arena *arena, Str8List *paths_list, Str8List *keys_list, Str8 stream)
 {
   // Skip .csv header row
-  int32_t paths_idx = 0;
-  uint64_t data_start_idx = str8_index(stream, '\n') + 1;
-  Str8 stream_cursor, line;
+  Str8 cursor = str8_skip(stream, str8_index(stream, '\n') + 1);
+  int32_t amt_paths = 0;
 
-  for (int32_t i = 0; i < amt_keys; ++i)
+  while (cursor.size > 0)
   {
-    stream_cursor = str8_skip(stream, data_start_idx);
+    Str8 line = str8_prefix(cursor, str8_index(cursor, '\n'));
+    Str8 key_slice = str8_prefix(line, str8_index(line, ','));
+    Str8 path_slice = str8_postfix(line, line.size - str8_index(line, ',') - 1);
 
-    do
+    for (Str8Node *key_node = keys_list->head; key_node != NULL; key_node = key_node->next)
     {
-      line = str8_prefix(stream_cursor, str8_index(stream_cursor, '\n'));
-      Str8 key_slice = str8_prefix(line, str8_index(line, ','));
-      Str8 path_slice = str8_postfix(line, line.size - str8_index(line, ',') - 1);
-
-      if (str8_match(keys_arr[i], key_slice, key_slice.size))
+      if (str8_match(key_node->str, key_slice, key_slice.size))
       {
-        paths_arr[paths_idx] = str8_pushf(arena, "%.*s", (int)str8_index(path_slice, '\r'), path_slice.ptr);
-        ++paths_idx;
+        Str8Node *new_node = str8_list_push(arena, paths_list);
+        if (!new_node) return 0;
+        new_node->str = str8_pushf(arena, "%.*s", (int)str8_index(path_slice, '\r'), path_slice.ptr);
+        ++amt_paths;
       }
-
-      stream_cursor = str8_skip(stream_cursor, line.size + 1);
     }
-    while (stream_cursor.size > 0);
+
+    cursor = str8_skip(cursor, line.size + 1);
   }
 
-  return paths_idx;
+  return amt_paths;
 }

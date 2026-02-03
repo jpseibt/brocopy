@@ -38,12 +38,13 @@ to_lower(int32_t ch)
 //==================================================
 // Arena (Simple arena implementation)
 //==================================================
-typedef struct Arena
+typedef struct Arena Arena;
+struct Arena
 {
   uint8_t *base;
   uint64_t size;
   uint64_t pos;
-} Arena;
+};
 
 static Arena arena_alloc(uint64_t size);
 static Arena arena_from_buffer(uint8_t *buffer, uint64_t size);
@@ -51,15 +52,17 @@ static void * arena_push(Arena *arena, uint64_t size);
 static void arena_clear(Arena *arena);
 static void arena_free(Arena *arena);
 
+
 //==================================================
 // Scratch
 //==================================================
 
-typedef struct Scratch
+typedef struct Scratch Scratch;
+struct Scratch
 {
   Arena *arena;
   uint64_t origin_pos;
-} Scratch;
+};
 
 static Scratch scratch_start(Arena *arena);
 static void scratch_end(Scratch scratch);
@@ -68,21 +71,37 @@ static void scratch_end(Scratch scratch);
 //==================================================
 // Str8
 //==================================================
-typedef struct Str8
+typedef struct Str8 Str8;
+struct Str8
 {
   uint8_t *ptr;
   uint64_t size;
-} Str8;
+};
+
+typedef struct Str8Node Str8Node;
+struct Str8Node
+{
+  Str8Node *next;
+  Str8 str;
+};
+
+typedef struct Str8List Str8List;
+struct Str8List
+{
+  Str8Node *head;
+  Str8Node *tail;
+};
 
 #define str8_from_buf(buf)  (Str8){ (uint8_t *)(buf), sizeof(buf) }
 #define str8_from_lit(lit)  (Str8){ (uint8_t *)(lit), sizeof(lit) - 1 }
 #define str8_from_cstr(ptr) (Str8){ (uint8_t *)(ptr), str_len(ptr) }         /* Assumes null terminated char* */
 #define str8_from_cstr_term(ptr) (Str8){ (uint8_t *)(ptr), str_len(ptr) + 1} /* Preserve null terminator */
 
-static Str8 str8_push(Arena *arena, uint64_t size);
-static Str8 str8_pushf(Arena *arena, char *fmt, ...);
-static uint64_t str8_snprintf(Str8 str, char *fmt, ...);
-static Str8 str8_append(Arena *arena, Str8 lhs, Str8 rhs);
+static Str8       str8_push(Arena *arena, uint64_t size);
+static Str8       str8_pushf(Arena *arena, char *fmt, ...);
+static Str8Node * str8_list_push(Arena *arena, Str8List *list);
+static Str8       str8_append(Arena *arena, Str8 lhs, Str8 rhs);
+static uint64_t   str8_snprintf(Str8 str, char *fmt, ...);
 
 static int32_t str8_equals(Str8 lhs, Str8 rhs);
 static int32_t str8_equals_insensitive(Str8 lhs, Str8 rhs);
@@ -100,8 +119,9 @@ static Str8 str8_postfix(Str8 str, uint64_t n);
 
 static Str8 str8_buffer_file(Arena *arena, Str8 path);
 
+
 //==================================================
-// Prototypes
+// C Strings
 //==================================================
 
 int32_t str_match(char *str0, char *str1, int32_t len, int32_t insensitive);
@@ -109,4 +129,3 @@ uint32_t str_append(char *buf, char *s, uint32_t size);
 char *index(char *buf_p, char ch);
 
 #endif // BROCOPY_H
-
