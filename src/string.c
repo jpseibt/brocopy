@@ -154,6 +154,18 @@ str8_index_last(Str8 str, uint8_t ch)
 }
 
 static uint64_t
+str8_index_last_slash(Str8 str)
+{
+  for (uint64_t i = str.size - 1; i > 0; --i)
+  {
+    if (is_slash(str.ptr[i - 1]))
+      return i - 1;
+  }
+
+  return str.size;
+}
+
+static uint64_t
 str8_index_substr(Str8 str, Str8 sub)
 {
   if (sub.size > str.size || sub.size == 0) return str.size;
@@ -240,3 +252,12 @@ str8_buffer_file(Arena *arena, Str8 path)
   return result;
 }
 
+static void
+str8_normalize_slash(Str8 str)
+{
+  for (uint64_t i = 0; i < str.size; ++i)
+  {
+    if (is_slash(str.ptr[i]))
+      str.ptr[i] = OS_SLASH;
+  }
+}

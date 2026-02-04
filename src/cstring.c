@@ -3,8 +3,8 @@
 #endif
 
 // Return 1 if the cstrings match up to `len` chars, zero otherwise
-int32_t
-static cstr_match(char *str0, char *str1, int32_t len, int32_t insensitive)
+static int32_t
+cstr_match(char *str0, char *str1, int32_t len, int32_t insensitive)
 {
   int32_t i = 0;
   if (insensitive)

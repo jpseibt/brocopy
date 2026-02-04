@@ -27,21 +27,28 @@
   -> J. Paulo Seibt - https://jpseibt.github.io
   ==============================================================================*/
 
+#ifdef _WIN32
 #include <io.h>
 #include <fcntl.h>
 #include <windows.h>
-#include <time.h>
+#define MAX_PATH 260
 
+#else
+#define _POSIX_C_SOURCE 200809L /* Exposes functions like readlink, hidden by -std=c99 */
+#define MAX_PATH 4096
+#include <unistd.h>
+#endif
+
+#include <time.h>
 #include "src/brocopy.h"
 #include "src/arena.c"
 #include "src/cstring.c"
 #include "src/string.c"
 
 #define ARENA_SIZE 1048576 /* 1MB */
-#define MAX_PATH 260
 #define MAX_KEYS 1000
 #define LOG_SEP_LINE "==================================================\n"
-#define HELP_TEXT \
+#define HELP_TEXT                                                            \
     "Usage: broadcast_pjob.exe <src_path> <csv_path> <key> [<key> ...]\n"    \
     "Args:\n"                                                                \
     "     <src_path>\tPath to the source file.\n"                            \
@@ -52,19 +59,18 @@
 // str8_pushf or str8_snprintf -> vsnprintf always null-terminates
 
 // Prototypes
+static Str8 os_get_exe_path(Arena *arena);
 static void log_date_hour(Arena *scratch, FILE *stream);
 static int32_t set_paths_list(Arena *arena, Str8List *paths_list, Str8List *keys_list, Str8 stream);
 
 int main(int argc, char *argv[])
 {
   Arena arena = arena_alloc(ARENA_SIZE);
-  Str8 log_path = str8_push(&arena, MAX_PATH);
-  { // Set log_path to /head/directory/log.txt (%:h/log.txt)
-    Str8 slice_head = { log_path.ptr, log_path.size };
-    GetModuleFileName(NULL, (char*)slice_head.ptr, slice_head.size);
-    slice_head.size = str8_index_last(slice_head, '\\');
-    str8_snprintf(log_path, "%.*s\\log.txt", slice_head.size, (char*)slice_head.ptr);
-  }
+
+  // Set log_path to /head/directory/log.txt (%:h/log.txt)
+  Str8 exe_path = os_get_exe_path(&arena);
+  Str8 log_path = str8_pushf(&arena, "%.*s%clog.txt", (int)str8_index_last_slash(exe_path), (char*)exe_path.ptr, OS_SLASH);
+
   FILE *log_stream = fopen((char*)log_path.ptr, "a");
   log_date_hour(&arena, log_stream);
 
@@ -149,6 +155,24 @@ int main(int argc, char *argv[])
   return 0;
 }
 
+
+static Str8
+os_get_exe_path(Arena *arena)
+{
+  Str8 result = {0};
+  char buf[MAX_PATH];
+
+#ifdef _WIN32
+  uint32_t len = GetModuleFileName(NULL, buf, sizeof(buf));
+#else
+  uint64_t len = readlink("/proc/self/exe", buf, sizeof(buf));
+#endif
+
+  buf[len] = '\0';
+  result = str8_pushf(arena, buf);
+
+  return result;
+}
 
 static void
 log_date_hour(Arena *scratch, FILE *stream)
