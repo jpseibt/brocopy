@@ -33,12 +33,12 @@ cstr_match(char *str0, char *str1, int32_t len, int32_t insensitive)
 static uint32_t
 cstr_append(char *buf, char *s, uint32_t size)
 {
-  if (size == 0) return 0;
+  if (size == 0) { return 0; }
 
   // End of the buf string
   uint64_t idx_buf = str_len(buf);
 
-  if (idx_buf >= size) return idx_buf;
+  if (idx_buf >= size) { return idx_buf; }
 
   for (uint64_t i = 0; s[i] != '\0' && idx_buf < (size - 1); ++i)
   {

@@ -38,7 +38,7 @@ static Str8Node *
 str8_list_push(Arena *arena, Str8List *list)
 {
   Str8Node *node = (Str8Node*)arena_push(arena, sizeof(Str8Node));
-  if (!node) return NULL;
+  if (!node) { return NULL; }
 
   node->next = NULL;
   node->str.ptr = NULL;
@@ -79,11 +79,11 @@ str8_snprintf(Str8 str, char *fmt, ...)
 static int32_t
 str8_equals(Str8 lhs, Str8 rhs)
 {
-  if (lhs.size != rhs.size) return 0;
+  if (lhs.size != rhs.size) { return 0; }
 
   for (uint64_t i = 0; i < lhs.size; ++i)
   {
-    if (lhs.ptr[i] != rhs.ptr[i]) return 0;
+    if (lhs.ptr[i] != rhs.ptr[i]) { return 0; }
   }
 
   return 1;
@@ -92,11 +92,11 @@ str8_equals(Str8 lhs, Str8 rhs)
 static int32_t
 str8_equals_insensitive(Str8 lhs, Str8 rhs)
 {
-  if (lhs.size != rhs.size) return 0;
+  if (lhs.size != rhs.size) { return 0; }
 
   for (uint64_t i = 0; i < lhs.size; ++i)
   {
-    if (to_lower(lhs.ptr[i]) != to_lower(rhs.ptr[i])) return 0;
+    if (to_lower(lhs.ptr[i]) != to_lower(rhs.ptr[i])) { return 0; }
   }
 
   return 1;
@@ -106,11 +106,11 @@ str8_equals_insensitive(Str8 lhs, Str8 rhs)
 static int32_t
 str8_match(Str8 lhs, Str8 rhs, uint64_t n)
 {
-  if (lhs.size < n || rhs.size < n) return 0;
+  if (lhs.size < n || rhs.size < n) { return 0; }
 
   for (uint64_t i = 0; i < n; ++i)
   {
-    if (lhs.ptr[i] != rhs.ptr[i]) return 0;
+    if (lhs.ptr[i] != rhs.ptr[i]) { return 0; }
   }
 
   return 1;
@@ -119,11 +119,11 @@ str8_match(Str8 lhs, Str8 rhs, uint64_t n)
 static int32_t
 str8_match_insensitive(Str8 lhs, Str8 rhs, uint64_t n)
 {
-  if (lhs.size < n || rhs.size < n) return 0;
+  if (lhs.size < n || rhs.size < n) { return 0; }
 
   for (uint64_t i = 0; i < n; ++i)
   {
-    if (to_lower(lhs.ptr[i]) != to_lower(rhs.ptr[i])) return 0;
+    if (to_lower(lhs.ptr[i]) != to_lower(rhs.ptr[i])) { return 0; }
   }
 
   return 1;
@@ -168,7 +168,7 @@ str8_index_last_slash(Str8 str)
 static uint64_t
 str8_index_substr(Str8 str, Str8 sub)
 {
-  if (sub.size > str.size || sub.size == 0) return str.size;
+  if (sub.size > str.size || sub.size == 0) { return str.size; }
 
   Str8 slice = {0};
   for (uint64_t i = 0, last_idx = (str.size - sub.size); i <= last_idx; ++i)
@@ -186,7 +186,7 @@ str8_index_substr(Str8 str, Str8 sub)
 static uint64_t
 str8_index_substr_last(Str8 str, Str8 sub)
 {
-  if (sub.size > str.size || sub.size == 0) return str.size;
+  if (sub.size > str.size || sub.size == 0) { return str.size; }
 
   Str8 slice = {0};
   for (uint64_t i = (str.size - sub.size) + 1; i > 0; --i)
@@ -233,7 +233,7 @@ str8_buffer_file(Arena *arena, Str8 path)
   Str8 result = {0};
 
   FILE *file = fopen((char*)path.ptr, "rb");
-  if (!file) return result;
+  if (!file) { return result; }
 
   fseek(file, 0, SEEK_END);
   int64_t file_size = ftell(file);
