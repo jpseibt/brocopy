@@ -32,7 +32,6 @@
 #include <fcntl.h>
 #include <windows.h>
 #define MAX_PATH 260
-
 #else
 #define _POSIX_C_SOURCE 200809L /* Exposes functions like readlink, hidden by -std=c99 */
 #define MAX_PATH 4096
@@ -62,6 +61,7 @@
 static Str8 os_get_exe_path(Arena *arena);
 static void log_date_hour(Arena *scratch, FILE *stream);
 static int32_t set_paths_list(Arena *arena, Str8List *paths_list, Str8List *keys_list, Str8 stream);
+static int32_t write_data_to_file(Str8 data, Str8 dest);
 
 int main(int argc, char *argv[])
 {
@@ -84,7 +84,7 @@ int main(int argc, char *argv[])
     fprintf(log_stream, LOG_SEP_LINE);
     fclose(log_stream);
     arena_free(&arena);
-    return 1;
+    return 0;
   }
 
   Str8 src_path = str8_from_cstr_term(argv[1]);
@@ -127,26 +127,44 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  fprintf(log_stream, "Bytes read from CSV (\"%s\"): %llu\n", (char*)csv_path.ptr, csv_stream_buf.size);
+  fprintf(log_stream, "Bytes read from CSV (\"%s\"): %lu\n", (char*)csv_path.ptr, csv_stream_buf.size);
 
   Str8List paths = {0};
   int32_t amt_paths = set_paths_list(&arena, &paths, &keys, csv_stream_buf);
   fprintf(log_stream, "Amount of matches in CSV from arg keys: %d out of %d\n", amt_paths, amt_keys);
 
+#ifndef _WIN32
+  // On Linux, buffer source file data to use `write_data_to_file()`
+  Str8 src_data = str8_buffer_file(&arena, src_path);
+#endif
+
   Str8 dest_path = str8_push(&arena, MAX_PATH);
+  int32_t result = 0;
 
   for (Str8Node *curr_node = paths.head; curr_node != NULL; curr_node = curr_node->next)
   {
-    str8_snprintf(dest_path, "%.*s", (int)curr_node->str.size, ()curr_node->str.ptr);
+    str8_snprintf(dest_path, "%.*s", (int)curr_node->str.size, (char*)curr_node->str.ptr);
 
-    if (CopyFile((char*)src_path.ptr, (char*)dest_path.ptr, FALSE))
+#ifdef _WIN32
+    result = CopyFile((char*)src_path.ptr, (char*)dest_path.ptr, FALSE);
+#else
+    result = write_data_to_file(src_data, dest_path);
+#endif
+
+    if (result)
     {
-      fprintf(log_stream, "\"%s\" file copied to \"%s\"\n", (char*)src_path.ptr, (char*)dest_path.ptr);
+      fprintf(log_stream, "\"%s\" copied to \"%s\"\n", (char*)src_path.ptr, (char*)dest_path.ptr);
     }
     else
     {
       fprintf(log_stream, "Failed to copy \"%s\" to \"%s\"\n", (char*)src_path.ptr, (char*)dest_path.ptr);
     }
+  }
+
+  // Attempt to remove tmp file
+  if (remove((char*)src_path.ptr) == 0) 
+  {
+    fprintf(log_stream, "File \"%s\" deleted successfully\n", (char*)src_path.ptr);
   }
 
   fprintf(log_stream, LOG_SEP_LINE);
@@ -190,7 +208,8 @@ log_date_hour(Arena *scratch, FILE *stream)
 }
 
 // Return number of paths that where succesfully parsed
-static int32_t set_paths_list(Arena *arena, Str8List *paths_list, Str8List *keys_list, Str8 stream)
+static int32_t
+set_paths_list(Arena *arena, Str8List *paths_list, Str8List *keys_list, Str8 stream)
 {
   // Skip .csv header row
   Str8 cursor = str8_skip(stream, str8_index(stream, '\n') + 1);
@@ -207,7 +226,7 @@ static int32_t set_paths_list(Arena *arena, Str8List *paths_list, Str8List *keys
       if (str8_match(key_node->str, key_slice, key_slice.size))
       {
         Str8Node *new_node = str8_list_push(arena, paths_list);
-        if (!new_node) return 0;
+        if (!new_node) { return 0; }
         new_node->str = str8_pushf(arena, "%.*s", (int)str8_index(path_slice, '\r'), path_slice.ptr);
         ++amt_paths;
       }
@@ -217,4 +236,20 @@ static int32_t set_paths_list(Arena *arena, Str8List *paths_list, Str8List *keys
   }
 
   return amt_paths;
+}
+
+static int32_t
+write_data_to_file(Str8 data, Str8 dest)
+{
+  int32_t result = 0;
+  if (data.size == 0) { return 0; }
+
+  FILE *dest_stream = fopen((char*)dest.ptr, "wb");
+  if (!dest_stream) { return 0; }
+
+  uint64_t written = fwrite(data.ptr, 1, data.size, dest_stream);
+  result = written == data.size;
+
+  fclose(dest_stream);
+  return result;
 }
