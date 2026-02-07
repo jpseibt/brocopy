@@ -84,7 +84,7 @@ int main(int argc, char *argv[])
     fprintf(log_stream, LOG_SEP_LINE);
     fclose(log_stream);
     arena_free(&arena);
-    return 1;
+    return 0;
   }
 
   Str8 src_path = str8_from_cstr_term(argv[1]);
@@ -127,7 +127,7 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  fprintf(log_stream, "Bytes read from CSV (\"%s\"): %llu\n", (char*)csv_path.ptr, csv_stream_buf.size);
+  fprintf(log_stream, "Bytes read from CSV (\"%s\"): %lu\n", (char*)csv_path.ptr, csv_stream_buf.size);
 
   Str8List paths = {0};
   int32_t amt_paths = set_paths_list(&arena, &paths, &keys, csv_stream_buf);
@@ -135,7 +135,7 @@ int main(int argc, char *argv[])
 
 #ifndef _WIN32
   // On Linux, buffer source file data to use `write_data_to_file()`
-  Str8 src_data = str8_buffer_file(scratch, src_path);
+  Str8 src_data = str8_buffer_file(&arena, src_path);
 #endif
 
   Str8 dest_path = str8_push(&arena, MAX_PATH);

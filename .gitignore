@@ -1,6 +1,8 @@
 *.exe
 *.log
 *.prn
+*.csv
+*.out
 bin/
 logs/
 tags
