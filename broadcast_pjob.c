@@ -92,6 +92,22 @@ int main(int argc, char *argv[])
   Str8List keys = {0};
   int32_t amt_keys = argc - 3;
 
+  str8_normalize_slash(src_path);
+  str8_normalize_slash(csv_path);
+
+  { // Check if source path is accessible
+    FILE *src_check = fopen((char*)src_path.ptr, "r");
+    if (src_check == NULL)
+    {
+      fprintf(log_stream, "\"%s\" is inaccessible\n", (char*)src_path.ptr);
+      fprintf(log_stream, LOG_SEP_LINE);
+      fclose(log_stream);
+      arena_free(&arena);
+      return 1;
+    }
+    fclose(src_check);
+  }
+
   if (amt_keys > MAX_KEYS)
   {
     fprintf(log_stream, "Warning: Too many keys passed (%d). Truncated to MAX_KEYS=%d\n", amt_keys, MAX_KEYS);
@@ -144,6 +160,7 @@ int main(int argc, char *argv[])
   for (Str8Node *curr_node = paths.head; curr_node != NULL; curr_node = curr_node->next)
   {
     str8_snprintf(dest_path, "%.*s", (int)curr_node->str.size, (char*)curr_node->str.ptr);
+    str8_normalize_slash(dest_path);
 
 #ifdef _WIN32
     result = CopyFile((char*)src_path.ptr, (char*)dest_path.ptr, FALSE);
@@ -223,7 +240,7 @@ set_paths_list(Arena *arena, Str8List *paths_list, Str8List *keys_list, Str8 str
 
     for (Str8Node *key_node = keys_list->head; key_node != NULL; key_node = key_node->next)
     {
-      if (str8_match(key_node->str, key_slice, key_slice.size))
+      if (str8_equals_insensitive(key_node->str, key_slice))
       {
         Str8Node *new_node = str8_list_push(arena, paths_list);
         if (!new_node) { return 0; }

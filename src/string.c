@@ -239,7 +239,7 @@ str8_buffer_file(Arena *arena, Str8 path)
   int64_t file_size = ftell(file);
   rewind(file);
 
-  if (file_size > 0) 
+  if (file_size > 0)
   {
     // Alocate file_size bytes on arena and buffer the stream
     result.ptr = (uint8_t*)arena_push(arena, (uint64_t)file_size);
