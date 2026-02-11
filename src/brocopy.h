@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h> // memset
+#include <string.h> // memset and memcpy
 
 #ifdef _WIN32
 #define OS_SLASH '\\'
@@ -107,11 +107,13 @@ struct Str8List
 
 #define str8_from_buf(buf)  (Str8){ (uint8_t *)(buf), sizeof(buf) }
 #define str8_from_lit(lit)  (Str8){ (uint8_t *)(lit), sizeof(lit) - 1 }
+#define str8_from_lit_term(lit)  (Str8){ (uint8_t *)(lit), sizeof(lit) }     /* Preserve null terminator */
 #define str8_from_cstr(ptr) (Str8){ (uint8_t *)(ptr), str_len(ptr) }         /* Assumes null terminated char* */
 #define str8_from_cstr_term(ptr) (Str8){ (uint8_t *)(ptr), str_len(ptr) + 1} /* Preserve null terminator */
 
 static Str8       str8_push(Arena *arena, uint64_t size);
 static Str8       str8_pushf(Arena *arena, char *fmt, ...);
+static Str8       str8_push_copy(Arena *arena, Str8 str);
 static Str8Node * str8_list_push(Arena *arena, Str8List *list);
 static Str8       str8_append(Arena *arena, Str8 lhs, Str8 rhs);
 static uint64_t   str8_snprintf(Str8 str, char *fmt, ...);

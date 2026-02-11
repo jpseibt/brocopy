@@ -34,6 +34,16 @@ str8_pushf(Arena *arena, char *fmt, ...)
   return result;
 }
 
+static Str8
+str8_push_copy(Arena *arena, Str8 str)
+{
+  Str8 result;
+  result.ptr = (uint8_t*)arena_push(arena, str.size);
+  result.size = str.size;
+  memcpy(result.ptr, str.ptr, str.size);
+  return result;
+}
+
 static Str8Node *
 str8_list_push(Arena *arena, Str8List *list)
 {
